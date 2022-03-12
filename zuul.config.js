@@ -7,6 +7,7 @@ const zuulConfig = module.exports = {
 
   // test on localhost by default
   local: true,
+  open: true,
 
   concurrency: 2, // ngrok only accepts two tunnels by default
   // if browser does not sends output in 120s since last output:
@@ -29,5 +30,27 @@ if (process.env.CI === 'true') {
   };
 }
 
-var isPullRequest = process.env.TRAVIS_PULL_REQUEST && process.env.TRAVIS_PULL_REQUEST !== 'false';
-zuulConfig.browsers = isPullRequest ? browsers.pullRequest : browsers.all;
+zuulConfig.browsers = [
+  {
+    name: 'firefox',
+    version: 'latest'
+  }, {
+    name: 'internet explorer',
+    version: '9..11'
+  }, {
+    name: 'safari',
+    version: '14'
+  }, {
+    name: 'iphone',
+    version: '14'
+  }, {
+    name: 'android',
+    version: '5.1..6.0'
+  }, {
+    name: 'ipad',
+    version: '14'
+  }, {
+    name: 'MicrosoftEdge',
+    version: 'latest'
+  }
+];

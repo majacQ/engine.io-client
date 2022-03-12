@@ -1,12 +1,14 @@
 /* global attachEvent */
 
-const XMLHttpRequest = require("xmlhttprequest-ssl");
-const Polling = require("./polling");
-const Emitter = require("component-emitter");
-const { pick, installTimerFunctions } = require("../util");
-const globalThis = require("../globalThis");
+import XMLHttpRequest from "./xmlhttprequest.js";
+import debugModule from "debug"; // debug()
+import globalThis from "../globalThis.js";
+import { installTimerFunctions, pick } from "../util.js";
+import { DefaultEventsMap, Emitter } from "@socket.io/component-emitter";
+import { Polling } from "./polling.js";
+import { SocketOptions } from "../socket.js";
 
-const debug = require("debug")("engine.io-client:polling-xhr");
+const debug = debugModule("engine.io-client:polling-xhr"); // debug()
 
 /**
  * Empty function
@@ -15,11 +17,17 @@ const debug = require("debug")("engine.io-client:polling-xhr");
 function empty() {}
 
 const hasXHR2 = (function() {
-  const xhr = new XMLHttpRequest({ xdomain: false });
+  const xhr = new XMLHttpRequest({
+    xdomain: false
+  });
   return null != xhr.responseType;
 })();
 
-class XHR extends Polling {
+export class XHR extends Polling {
+  private readonly xd: boolean;
+  private readonly xs: boolean;
+  private pollXhr: any;
+
   /**
    * XHR Polling constructor.
    *
@@ -35,7 +43,7 @@ class XHR extends Polling {
 
       // some user agents have empty `location.port`
       if (!port) {
-        port = isSSL ? 443 : 80;
+        port = isSSL ? "443" : "80";
       }
 
       this.xd =
@@ -96,7 +104,20 @@ class XHR extends Polling {
   }
 }
 
-class Request extends Emitter {
+export class Request extends Emitter<DefaultEventsMap, DefaultEventsMap> {
+  private readonly opts: { xd; xs } & SocketOptions;
+  private readonly method: string;
+  private readonly uri: string;
+  private readonly async: boolean;
+  private readonly data: string | ArrayBuffer;
+
+  private xhr: any;
+  private setTimeoutFn: typeof setTimeout;
+  private index: number;
+
+  static requestsCount = 0;
+  static requests = {};
+
   /**
    * Request constructor
    *
@@ -125,7 +146,6 @@ class Request extends Emitter {
     const opts = pick(
       this.opts,
       "agent",
-      "enablesXDR",
       "pfx",
       "key",
       "passphrase",
@@ -173,27 +193,18 @@ class Request extends Emitter {
         xhr.timeout = this.opts.requestTimeout;
       }
 
-      if (this.hasXDR()) {
-        xhr.onload = () => {
+      xhr.onreadystatechange = () => {
+        if (4 !== xhr.readyState) return;
+        if (200 === xhr.status || 1223 === xhr.status) {
           this.onLoad();
-        };
-        xhr.onerror = () => {
-          this.onError(xhr.responseText);
-        };
-      } else {
-        xhr.onreadystatechange = () => {
-          if (4 !== xhr.readyState) return;
-          if (200 === xhr.status || 1223 === xhr.status) {
-            this.onLoad();
-          } else {
-            // make sure the `error` event handler that's user-set
-            // does not throw in the same tick and gets caught here
-            this.setTimeoutFn(() => {
-              this.onError(typeof xhr.status === "number" ? xhr.status : 0);
-            }, 0);
-          }
-        };
-      }
+        } else {
+          // make sure the `error` event handler that's user-set
+          // does not throw in the same tick and gets caught here
+          this.setTimeoutFn(() => {
+            this.onError(typeof xhr.status === "number" ? xhr.status : 0);
+          }, 0);
+        }
+      };
 
       debug("xhr data %s", this.data);
       xhr.send(this.data);
@@ -248,16 +259,11 @@ class Request extends Emitter {
    *
    * @api private
    */
-  cleanup(fromError) {
+  cleanup(fromError?) {
     if ("undefined" === typeof this.xhr || null === this.xhr) {
       return;
     }
-    // xmlhttprequest
-    if (this.hasXDR()) {
-      this.xhr.onload = this.xhr.onerror = empty;
-    } else {
-      this.xhr.onreadystatechange = empty;
-    }
+    this.xhr.onreadystatechange = empty;
 
     if (fromError) {
       try {
@@ -285,15 +291,6 @@ class Request extends Emitter {
   }
 
   /**
-   * Check if it has XDomainRequest.
-   *
-   * @api private
-   */
-  hasXDR() {
-    return typeof XDomainRequest !== "undefined" && !this.xs && this.enablesXDR;
-  }
-
-  /**
    * Aborts the request.
    *
    * @api public
@@ -309,11 +306,10 @@ class Request extends Emitter {
  * emitted.
  */
 
-Request.requestsCount = 0;
-Request.requests = {};
-
 if (typeof document !== "undefined") {
+  // @ts-ignore
   if (typeof attachEvent === "function") {
+    // @ts-ignore
     attachEvent("onunload", unloadHandler);
   } else if (typeof addEventListener === "function") {
     const terminationEvent = "onpagehide" in globalThis ? "pagehide" : "unload";
@@ -328,6 +324,3 @@ function unloadHandler() {
     }
   }
 }
-
-module.exports = XHR;
-module.exports.Request = Request;

@@ -1,6 +1,7 @@
 const expect = require("expect.js");
 const Socket = require("../").Socket;
 const env = require("./support/env");
+const { repeat } = require("./util");
 
 describe("connection", function() {
   this.timeout(20000);
@@ -62,6 +63,39 @@ describe("connection", function() {
     });
   });
 
+  it("should merge packets according to maxPayload value", done => {
+    const socket = new Socket({ transports: ["polling"] });
+    socket.on("open", () => {
+      socket.send(repeat("a", 99));
+      socket.send(repeat("b", 30));
+      socket.send(repeat("c", 30));
+      socket.send(repeat("d", 35)); // 3 * 1 (packet type) + 2 * 1 (separator) + 30 + 30 + 35 = 100
+      socket.send(repeat("€", 33));
+      socket.send(repeat("f", 99));
+
+      let count = 0;
+      socket.on("message", () => {
+        count++;
+        if (count === 6) {
+          socket.close();
+          done();
+        }
+      });
+    });
+  });
+
+  it("should send a packet whose length is above the maxPayload value anyway", done => {
+    const socket = new Socket({ transports: ["polling"] });
+    socket.on("open", () => {
+      socket.send(repeat("a", 101));
+      socket.send("b");
+
+      socket.on("close", () => {
+        done();
+      });
+    });
+  });
+
   // no `Worker` on old IE
   if (typeof Worker !== "undefined") {
     it("should work in a worker", done => {
@@ -91,33 +125,7 @@ describe("connection", function() {
     });
   }
 
-  it("should not connect at all when JSONP forced and disabled", done => {
-    const socket = new Socket({
-      transports: ["polling"],
-      forceJSONP: true,
-      jsonp: false
-    });
-    socket.on("error", msg => {
-      expect(msg).to.be("No transports available");
-      done();
-    });
-  });
-
   if (env.wsSupport && !env.isOldSimulator && !env.isAndroid && !env.isIE11) {
-    it("should connect with ws when JSONP forced and disabled", done => {
-      const socket = new Socket({
-        transports: ["polling", "websocket"],
-        forceJSONP: true,
-        jsonp: false
-      });
-
-      socket.on("open", () => {
-        expect(socket.transport.name).to.be("websocket");
-        socket.close();
-        done();
-      });
-    });
-
     it("should defer close when upgrading", done => {
       const socket = new Socket();
       socket.on("open", () => {
